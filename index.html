@@ -432,8 +432,9 @@ document.addEventListener("click",async e=>{
   else if(a==="export"){const r=await giveFile("payday-planner.csv",toCSV(),"text/csv");if(r==="failed")flash("Couldn't save the file on this device.",true)}
   else if(a==="backup"){
     const stamp=iso(today());
-    const r=await giveFile(`payday-planner-backup-${stamp}.json`,JSON.stringify({app:"payday-planner",version:1,savedAt:new Date().toISOString(),data:state},null,1),"application/json");
-    if(r==="shared"||r==="saved"){state.lastBackup=Date.now();commit();flash(r==="shared"?"Backup file sent. If you picked Drive, it's in your Drive now.":"Backup file saved. Upload it to Google Drive to keep it safe.")}
+    // Android only shares a short list of file types, so the backup goes out as plain text (.txt); Restore reads it either way.
+    const r=await giveFile(`payday-planner-backup-${stamp}.txt`,JSON.stringify({app:"payday-planner",version:1,savedAt:new Date().toISOString(),data:state},null,1),"text/plain");
+    if(r==="shared"||r==="saved"){state.lastBackup=Date.now();commit();flash(r==="shared"?"Backup file sent. If you picked Drive, it's in your Drive now.":"Backup saved to your phone's Downloads. To put it in Google Drive, open the Drive app, tap +, then Upload, and pick the payday-planner-backup file.")}
     else if(r==="failed")flash("Couldn't make the backup file on this device.",true);
   }
 });
