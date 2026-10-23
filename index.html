@@ -400,9 +400,11 @@ function toCSV(){
 }
 
 /* ---------- Google Drive auto backup (installed app only; the Claude viewer blocks Google's sign-in) ---------- */
+const DRIVE_CLIENT_ID="669087315379-pfcevccnuevg6dg1b20diq19rrpq5joe.apps.googleusercontent.com";
 const DRIVE_KEY="payday-planner-drive",FOLDER_NAME="Payday Planner Backups",FILE_NAME="payday-planner-backup.json";
 const drive={available:!(window.claude&&window.claude.use),cfg:{},token:null,exp:0,busy:false,timer:null,status:""};
 try{drive.cfg=JSON.parse(localStorage.getItem(DRIVE_KEY))||{}}catch(e){}
+if(!drive.cfg.clientId)drive.cfg.clientId=DRIVE_CLIENT_ID;
 function driveSaveCfg(){try{localStorage.setItem(DRIVE_KEY,JSON.stringify(drive.cfg))}catch(e){}}
 let gisLoading=null;
 function loadGIS(){
@@ -467,7 +469,7 @@ async function driveSync(fromTap){
 function driveSchedule(){if(!drive.available||!drive.cfg.connected)return;drive.cfg.pending=true;driveSaveCfg();clearTimeout(drive.timer);drive.timer=setTimeout(()=>driveSync(false),4000)}
 async function driveConnect(){
   const id=(document.getElementById("driveClientId")||{}).value;
-  if(id!==undefined){drive.cfg.clientId=id.trim();driveSaveCfg()}
+  if(id!==undefined&&id.trim()){drive.cfg.clientId=id.trim();driveSaveCfg()}
   if(!/\.apps\.googleusercontent\.com$/.test(drive.cfg.clientId||"")){drive.status="Paste the Client ID from Google first. It ends in .apps.googleusercontent.com.";renderDriveCard();return}
   drive.busy=true;drive.status="Connecting…";renderDriveCard();
   try{
@@ -495,7 +497,7 @@ async function driveRestore(silentOk){
 }
 function driveDisconnect(){
   try{if(drive.token&&window.google)google.accounts.oauth2.revoke(drive.token,()=>{})}catch(e){}
-  drive.token=null;drive.cfg={clientId:drive.cfg.clientId};driveSaveCfg();ui.confirmDel=null;render();
+  drive.token=null;drive.cfg={clientId:drive.cfg.clientId||DRIVE_CLIENT_ID};driveSaveCfg();ui.confirmDel=null;render();
 }
 function driveCardHTML(){
   if(!drive.available)return "";
@@ -503,7 +505,7 @@ function driveCardHTML(){
   const st=drive.status?`<p class="note" style="margin:0;color:${/…$/.test(drive.status)?"var(--muted)":"var(--bad)"}">${esc(drive.status)}</p>`:"";
   if(!c.connected)return `<div class="card" id="driveCard"><h3 style="font-size:17px">Automatic Google Drive backup</h3>
     <p class="note" style="margin:0">Connect once and the app saves a backup to the <b>${FOLDER_NAME}</b> folder in your Drive every time you change something. No menus, same folder every time.</p>
-    <label class="f" for="driveClientId">Google Client ID<input id="driveClientId" value="${esc(c.clientId||"")}" placeholder="1234-abc.apps.googleusercontent.com" autocomplete="off" spellcheck="false"></label>
+    ${c.clientId?"":`<label class="f" for="driveClientId">Google Client ID<input id="driveClientId" value="" placeholder="1234-abc.apps.googleusercontent.com" autocomplete="off" spellcheck="false"></label>`}
     <div class="btns"><button class="b primary" data-act="dconnect" ${drive.busy?"disabled":""}>Connect Google Drive</button></div>${st}</div>`;
   return `<div class="card" id="driveCard"><h3 style="font-size:17px">Automatic Google Drive backup <span class="chip">On</span></h3>
     <p class="note" style="margin:0">Saving to the <b>${FOLDER_NAME}</b> folder in your Drive. ${c.pending?"<b>Changes waiting to back up.</b>":when?`Last backup ${when}.`:""}</p>
