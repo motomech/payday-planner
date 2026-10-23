@@ -1,0 +1,485 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#1E6B57"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}:root{padding-top:env(safe-area-inset-top,0px)}</style></head><body>
+<title>Payday Planner</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one narrow column, phone first. Summary of this paycheck on top, then each pay period as a ledger stub. */
+:root{
+  --bg:#EEF3F1; --surface:#FFFFFF; --ink:#13201C; --muted:#5A6A65; --line:#D8E1DD;
+  --accent:#1E6B57; --accent-ink:#FFFFFF; --accent-soft:#DCEDE7;
+  --bad:#B3392F; --bad-soft:#F7E2DF; --warn:#9A6412; --warn-soft:#F6EBD6;
+  --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+  --body:"Instrument Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1513; --surface:#16201D; --ink:#E4EDEA; --muted:#93A49F; --line:#28352F;
+  --accent:#5CC3A3; --accent-ink:#06261D; --accent-soft:#1B3A31;
+  --bad:#F08B80; --bad-soft:#3A1F1C; --warn:#E3B062; --warn-soft:#3A2D16; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1513; --surface:#16201D; --ink:#E4EDEA; --muted:#93A49F; --line:#28352F;
+  --accent:#5CC3A3; --accent-ink:#06261D; --accent-soft:#1B3A31;
+  --bad:#F08B80; --bad-soft:#3A1F1C; --warn:#E3B062; --warn-soft:#3A2D16; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 96px}
+.wrap{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;letter-spacing:-.01em}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:18px}
+header.top h1{font-size:22px;font-weight:800}
+.save-state{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--accent)} .dot.busy{background:var(--warn)} .dot.bad{background:var(--bad)}
+
+/* tabs */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(4,1fr);
+  padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
+nav.tabs button{background:none;border:0;color:var(--muted);font:600 13px var(--body);padding:10px 4px;border-radius:10px;cursor:pointer}
+nav.tabs button[aria-selected="true"]{color:var(--accent);background:var(--accent-soft)}
+
+/* hero summary */
+.hero{background:var(--accent);color:var(--accent-ink);border-radius:18px;padding:18px 18px 16px;display:flex;flex-direction:column;gap:12px}
+.hero .label{color:inherit;opacity:.8}
+.hero .big{font-family:var(--display);font-weight:800;font-size:40px;line-height:1}
+.hero .row{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:14px}
+.hero .row b{font-family:var(--mono);font-weight:500}
+
+/* period stub */
+.period{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.period.current{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.p-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:14px 16px 10px;flex-wrap:wrap}
+.p-head h2{font-size:18px;font-weight:600}
+.chip{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.04em;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);vertical-align:middle}
+.chip.bad{background:var(--bad-soft);color:var(--bad)} .chip.warn{background:var(--warn-soft);color:var(--warn)}
+.lines{list-style:none;margin:0;padding:0 16px;display:flex;flex-direction:column}
+.lines li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 0;border-top:1px dashed var(--line)}
+.lines li.inc .amt{color:var(--accent)}
+.lines li.paid .nm{text-decoration:line-through;color:var(--muted)}
+.lines .nm{min-width:0;overflow-wrap:anywhere}
+.lines .sub{font-size:12px;color:var(--muted)}
+.lines input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent);margin:0}
+.lines .ico{width:22px;text-align:center;color:var(--accent);font-weight:700}
+.p-foot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:12px 16px 14px;border-top:1px solid var(--line);margin-top:4px;background:color-mix(in srgb,var(--bg) 50%,var(--surface))}
+.p-foot div{display:flex;flex-direction:column;gap:2px}
+.p-foot .num{font-size:15px}
+.neg{color:var(--bad)} .pos{color:var(--accent)}
+.pager{display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap}
+
+/* forms & lists */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:420px){.grid2{grid-template-columns:1fr}}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;min-width:0}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-width:0}
+textarea{font-family:var(--mono);font-size:13px;min-height:120px}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.check{display:flex;gap:8px;align-items:center;font-size:14px}
+.check input{width:20px;height:20px;accent-color:var(--accent)}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.b{font:600 14px var(--body);border-radius:10px;padding:10px 14px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.b.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.b.danger{color:var(--bad);border-color:var(--bad)}
+.b.small{padding:6px 10px;font-size:13px}
+.b:disabled{opacity:.5;cursor:default}
+.items{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.items li{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:12px 0;border-top:1px solid var(--line);align-items:center}
+.items li:first-child{border-top:0}
+.items .meta{font-size:13px;color:var(--muted)}
+.items .acts{display:flex;gap:6px;grid-column:2;grid-row:1 / span 2}
+.empty{padding:22px;text-align:center;color:var(--muted);display:flex;flex-direction:column;gap:12px;align-items:center}
+.note{font-size:13px;color:var(--muted)}
+.msg{font-size:14px;padding:10px 12px;border-radius:10px;background:var(--accent-soft);color:var(--ink)}
+.msg.bad{background:var(--bad-soft)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{font-weight:600;color:var(--muted)}
+td.err{color:var(--bad);white-space:normal}
+code{font-family:var(--mono);font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px}
+@media (prefers-reduced-motion:no-preference){.period,.card{animation:in .25s ease both}@keyframes in{from{transform:translateY(4px)}to{transform:none}}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Payday Planner</h1>
+    <div class="save-state" id="saveState"><span class="dot" id="saveDot"></span><span id="saveText">Loading…</span></div>
+  </header>
+  <main id="view"></main>
+</div>
+<nav class="tabs" role="tablist" id="tabs">
+  <button role="tab" data-tab="periods" aria-selected="true">Paychecks</button>
+  <button role="tab" data-tab="bills" aria-selected="false">Bills</button>
+  <button role="tab" data-tab="income" aria-selected="false">Income</button>
+  <button role="tab" data-tab="backup" aria-selected="false">Backup</button>
+</nav>
+
+<script>
+(function(){
+"use strict";
+/* ---------- dates ---------- */
+const pad=n=>String(n).padStart(2,"0");
+const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseISO=s=>{const [y,m,d]=String(s).split("-").map(Number);return new Date(y,m-1,d)};
+const addDays=(d,n)=>new Date(d.getFullYear(),d.getMonth(),d.getDate()+n);
+const dayNum=d=>Math.round(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/864e5);
+const dim=(y,m)=>new Date(y,m+1,0).getDate();
+function monthDate(y,m,day){y+=Math.floor(m/12);m=((m%12)+12)%12;return new Date(y,m,Math.min(day,dim(y,m)))}
+const today=()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),n.getDate())};
+const fmtShort=d=>d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+const fmtDay=d=>d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});
+const money=n=>(n<0?"-":"")+"$"+Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+
+const FREQS={once:"One time",weekly:"Weekly",biweekly:"Every 2 weeks",semimonthly:"Twice a month",monthly:"Monthly",quarterly:"Every 3 months",yearly:"Yearly"};
+
+/* All dates an item lands on in [s, e). */
+function occurrences(it,s,e){
+  const a=parseISO(it.date),out=[],f=it.freq;
+  if(isNaN(a))return out;
+  if(f==="once"){if(a>=s&&a<e)out.push(a);return out}
+  if(f==="weekly"||f==="biweekly"){
+    const step=f==="weekly"?7:14;
+    let k=Math.floor((dayNum(s)-dayNum(a))/step);
+    for(let d=addDays(a,k*step);d<e;k++,d=addDays(a,k*step))if(d>=s)out.push(d);
+    return out;
+  }
+  if(f==="semimonthly"){
+    const d1=a.getDate(),d2=Number(it.day2)||(d1<=15?d1+15:d1-15);
+    for(let y=s.getFullYear(),m=s.getMonth()-1;;m++){
+      const first=monthDate(y,m,1);if(first>=e)break;
+      for(const dd of [d1,d2]){const d=monthDate(y,m,dd);if(d>=s&&d<e)out.push(d)}
+    }
+    return out.sort((x,y)=>x-y);
+  }
+  const step=f==="quarterly"?3:f==="yearly"?12:1;
+  const mi=(s.getFullYear()*12+s.getMonth())-(a.getFullYear()*12+a.getMonth());
+  for(let k=Math.floor(mi/step)-1;;k++){
+    const d=monthDate(a.getFullYear(),a.getMonth()+k*step,a.getDate());
+    if(d>=e)break; if(d>=s)out.push(d);
+  }
+  return out;
+}
+
+/* ---------- state ---------- */
+const LS_KEY="payday-planner-v1";
+let state={bills:[],incomes:[],paid:{},mainIncomeId:null,updatedAt:0};
+let ui={tab:"periods",offset:0,editBill:null,editIncome:null,confirmDel:null,importRows:null,flash:null};
+const uid=()=>Math.random().toString(36).slice(2,10);
+
+function normalize(s){
+  if(!s||typeof s!=="object")return null;
+  const clean=(arr)=>Array.isArray(arr)?arr.filter(x=>x&&x.name!=null&&x.date).map(x=>({id:String(x.id||uid()),name:String(x.name),amount:Number(x.amount)||0,freq:FREQS[x.freq]?x.freq:"monthly",date:String(x.date),day2:x.day2?Number(x.day2):null})):[];
+  return {bills:clean(s.bills),incomes:clean(s.incomes),paid:(s.paid&&typeof s.paid==="object")?s.paid:{},mainIncomeId:s.mainIncomeId||null,updatedAt:Number(s.updatedAt)||0,lastBackup:Number(s.lastBackup)||null};
+}
+
+/* storage: account db when running inside Claude, plus device copy always */
+let dbRef=null,saveChain=Promise.resolve(),saveTimer=null;
+function setSave(kind,text){document.getElementById("saveDot").className="dot "+kind;document.getElementById("saveText").textContent=text}
+function localLoad(){try{return normalize(JSON.parse(localStorage.getItem(LS_KEY)))}catch(e){return null}}
+function localSave(){try{localStorage.setItem(LS_KEY,JSON.stringify(state));return true}catch(e){return false}}
+function commit(){
+  state.updatedAt=Date.now();
+  const ok=localSave();
+  render();
+  if(dbRef){
+    setSave("busy","Saving…");
+    clearTimeout(saveTimer);
+    saveTimer=setTimeout(()=>{
+      const body={json:JSON.stringify(state),updatedAt:state.updatedAt};
+      saveChain=saveChain.then(()=>dbRef.set(body)).then(()=>setSave("ok","Saved to your account"),()=>setSave("bad",ok?"Saved on this phone only":"Not saved"));
+    },500);
+  } else setSave(ok?"ok":"bad",ok?"Saved on this phone":"Not saved: storage is blocked");
+}
+async function initStore(){
+  const local=localLoad(); if(local)state=local;
+  render();
+  setSave(local?"ok":"", local?"Saved on this phone":"Nothing saved yet");
+  if(!(window.claude&&window.claude.use))return;
+  try{
+    const [db,user]=await Promise.all([window.claude.use("db"),window.claude.use("user")]);
+    if(!db||!user)return;
+    const id=await user.id(); if(!id)return;
+    const ref=db.doc(`data/users/${id}/budget`);
+    const snap=await ref.get();
+    dbRef=ref;
+    const remote=snap.exists?normalize(JSON.parse(snap.data().json||"null")):null;
+    if(remote&&remote.updatedAt>=state.updatedAt){state=remote;localSave();render();setSave("ok","Saved to your account")}
+    else if(state.bills.length||state.incomes.length){commit()}
+    else setSave("ok","Saves to your account");
+  }catch(e){/* keep device copy */}
+}
+
+/* ---------- pay periods ---------- */
+function mainIncome(){return state.incomes.find(i=>i.id===state.mainIncomeId)||state.incomes[0]||null}
+function periods(offset,count){
+  const mi=mainIncome(); if(!mi)return [];
+  const t=today();
+  const pays=occurrences(mi,addDays(t,-800),addDays(t,800));
+  let cur=-1; for(let i=0;i<pays.length;i++)if(pays[i]<=t)cur=i;
+  if(cur<0)cur=0;
+  const out=[];
+  for(let i=cur+offset;i<cur+offset+count;i++){
+    if(i<0||i+1>=pays.length)continue;
+    const s=pays[i],e=pays[i+1];
+    const bills=[];for(const b of state.bills)for(const d of occurrences(b,s,e))bills.push({b,d,key:b.id+"|"+iso(d)});
+    bills.sort((x,y)=>x.d-y.d||y.b.amount-x.b.amount);
+    const inc=[];for(const n of state.incomes)for(const d of occurrences(n,s,e))inc.push({n,d});
+    inc.sort((x,y)=>x.d-y.d);
+    const incT=inc.reduce((a,x)=>a+x.n.amount,0),billT=bills.reduce((a,x)=>a+x.b.amount,0);
+    const unpaid=bills.filter(x=>!state.paid[x.key]).reduce((a,x)=>a+x.b.amount,0);
+    out.push({s,e,bills,inc,incT,billT,unpaid,left:incT-billT,current:s<=t&&t<e});
+  }
+  return out;
+}
+
+/* ---------- rendering ---------- */
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const view=()=>document.getElementById("view");
+
+function render(){
+  document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===ui.tab)));
+  const fn={periods:renderPeriods,bills:renderBills,income:renderIncome,backup:renderBackup}[ui.tab];
+  view().innerHTML=`<div class="wrap" style="gap:16px">${ui.flash?`<div class="msg ${ui.flash.bad?"bad":""}">${esc(ui.flash.text)}</div>`:""}${fn()}</div>`;
+}
+
+function renderPeriods(){
+  if(!state.incomes.length&&!state.bills.length)return `<div class="card empty">
+    <h2 style="font-size:20px">Plan each paycheck</h2>
+    <p style="margin:0;max-width:34ch">Add your paycheck and your bills. Each pay period then lists every bill due before the next payday, and what's left over.</p>
+    <div class="btns" style="justify-content:center"><button class="b primary" data-act="go" data-tab="income">Add my paycheck</button><button class="b" data-act="sample">Try with example data</button></div>
+    <p class="note" style="margin:0">Already have a backup? Restore it from the Backup tab.</p></div>`;
+  if(!state.incomes.length)return `<div class="card empty"><h2 style="font-size:20px">Add your paycheck</h2><p style="margin:0">Pay periods run from one payday to the next, so I need to know when you get paid.</p><button class="b primary" data-act="go" data-tab="income">Add income</button></div>`;
+  const ps=periods(ui.offset,4); const t=today();
+  const cur=periods(0,1)[0];
+  let hero="";
+  if(cur){
+    hero=`<section class="hero" aria-label="This paycheck">
+      <div class="label">This paycheck · ${fmtShort(cur.s)} to ${fmtShort(addDays(cur.e,-1))}</div>
+      <div><div class="big num">${money(cur.left)}</div><div style="font-size:14px;opacity:.85">left after bills</div></div>
+      <div class="row"><span>Income <b>${money(cur.incT)}</b></span><span>Bills <b>${money(cur.billT)}</b></span><span>Still to pay <b>${money(cur.unpaid)}</b></span><span>Next payday <b>${fmtShort(cur.e)}</b></span></div>
+    </section>`;
+  }
+  const stubs=ps.map(p=>{
+    const lines=[
+      ...p.inc.map(x=>`<li class="inc"><span class="ico" aria-hidden="true">+</span><div class="nm">${esc(x.n.name)}<div class="sub">${fmtDay(x.d)}</div></div><span class="amt num">${money(x.n.amount)}</span></li>`),
+      ...p.bills.map(x=>{const paid=!!state.paid[x.key];const late=!paid&&x.d<t;
+        return `<li class="${paid?"paid":""}"><input type="checkbox" id="pd-${esc(x.key)}" data-act="paid" data-key="${esc(x.key)}" ${paid?"checked":""} aria-label="Mark ${esc(x.b.name)} paid"><label class="nm" for="pd-${esc(x.key)}">${esc(x.b.name)} ${late?'<span class="chip bad">Past due</span>':""}<div class="sub">Due ${fmtDay(x.d)}</div></label><span class="amt num">${money(x.b.amount)}</span></li>`})
+    ].join("");
+    return `<section class="period ${p.current?"current":""}">
+      <div class="p-head"><h2>${fmtShort(p.s)} – ${fmtShort(addDays(p.e,-1))}</h2>${p.current?'<span class="chip">This paycheck</span>':p.e<=t?'<span class="chip warn">Past</span>':""}</div>
+      <ul class="lines">${lines||'<li><span></span><span class="muted">Nothing due this period</span><span></span></li>'}</ul>
+      <div class="p-foot"><div><span class="label">Income</span><span class="num">${money(p.incT)}</span></div><div><span class="label">Bills</span><span class="num">${money(p.billT)}</span></div><div><span class="label">Left over</span><span class="num ${p.left<0?"neg":"pos"}">${money(p.left)}</span></div></div>
+    </section>`}).join("");
+  return hero+`<div class="pager"><button class="b small" data-act="off" data-d="-1">‹ Earlier</button>${ui.offset?'<button class="b small" data-act="off" data-d="0">Back to now</button>':""}<button class="b small" data-act="off" data-d="1">Later ›</button></div>`+stubs;
+}
+
+function freqOptions(sel,isIncome){return Object.entries(FREQS).filter(([k])=>!(isIncome&&k==="once"&&false)).map(([k,v])=>`<option value="${k}" ${k===sel?"selected":""}>${v}</option>`).join("")}
+
+function itemForm(kind,item){
+  const isInc=kind==="income";const it=item||{name:"",amount:"",freq:isInc?"biweekly":"monthly",date:iso(today()),day2:null};
+  const p=isInc?"inc":"bill";
+  return `<form class="card" id="${p}Form" data-kind="${kind}">
+    <h3 style="font-size:17px">${item?"Edit":"Add"} ${isInc?"income":"a bill"}</h3>
+    <div class="grid2">
+      <label class="f" for="${p}-name">Name<input id="${p}-name" name="name" required value="${esc(it.name)}" placeholder="${isInc?"Paycheck":"Rent"}"></label>
+      <label class="f" for="${p}-amount">Amount<input id="${p}-amount" name="amount" required inputmode="decimal" value="${it.amount===""?"":esc(it.amount)}" placeholder="0.00"></label>
+      <label class="f" for="${p}-freq">How often<select id="${p}-freq" name="freq">${freqOptions(it.freq,isInc)}</select></label>
+      <label class="f" for="${p}-date">${isInc?"A payday":"Next due date"}<input id="${p}-date" name="date" type="date" required value="${esc(it.date)}"></label>
+      <label class="f" for="${p}-day2" ${it.freq==="semimonthly"?"":"hidden"} data-day2>Second day of the month<input id="${p}-day2" name="day2" type="number" min="1" max="31" value="${it.day2||""}" placeholder="e.g. 15, or 31 for last day"></label>
+    </div>
+    ${isInc&&state.incomes.length>(item?1:0)?`<label class="check" for="inc-main"><input type="checkbox" id="inc-main" name="main" ${item&&mainIncome()&&mainIncome().id===item.id?"checked":""}>This paycheck sets my pay periods</label>`:""}
+    <div class="btns"><button class="b primary" type="submit">${item?"Save changes":isInc?"Add income":"Add bill"}</button>${item?`<button class="b" type="button" data-act="cancel">Cancel</button>`:""}</div>
+  </form>`;
+}
+
+function itemList(kind){
+  const isInc=kind==="income";const arr=isInc?state.incomes:state.bills;
+  if(!arr.length)return `<div class="card empty">${isInc?"No income yet. Add your paycheck above.":"No bills yet. Add one above, or import a list from the Backup tab."}</div>`;
+  const mi=mainIncome();
+  const sorted=[...arr].sort((a,b)=>isInc?0:(nextDue(a)-nextDue(b)));
+  const total=isInc?"":`<div class="note">${arr.length} bills · about ${money(monthlyTotal(arr))} a month</div>`;
+  return `<div class="card">${total}<ul class="items">${sorted.map(it=>{
+    const nd=nextDue(it);const conf=ui.confirmDel===it.id;
+    return `<li><div><b>${esc(it.name)}</b> ${isInc&&mi&&mi.id===it.id&&state.incomes.length>1?'<span class="chip">Sets pay periods</span>':""}<div class="meta"><span class="num">${money(it.amount)}</span> · ${FREQS[it.freq]}${nd?` · next ${fmtShort(nd)}`:""}</div></div>
+    <div class="acts">${conf?`<button class="b small danger" data-act="del" data-kind="${kind}" data-id="${it.id}">Delete</button><button class="b small" data-act="nodel">Keep</button>`:`<button class="b small" data-act="edit" data-kind="${kind}" data-id="${it.id}">Edit</button><button class="b small" data-act="askdel" data-id="${it.id}" aria-label="Delete ${esc(it.name)}">✕</button>`}</div></li>`}).join("")}</ul></div>`;
+}
+function nextDue(it){const t=today();const o=occurrences(it,t,addDays(t,800));return o[0]||null}
+function monthlyTotal(arr){const mult={weekly:52/12,biweekly:26/12,semimonthly:2,monthly:1,quarterly:1/3,yearly:1/12,once:0};return arr.reduce((a,b)=>a+b.amount*(mult[b.freq]||0),0)}
+
+function renderBills(){const it=ui.editBill&&state.bills.find(b=>b.id===ui.editBill);return itemForm("bill",it)+itemList("bill")}
+function renderIncome(){const it=ui.editIncome&&state.incomes.find(b=>b.id===ui.editIncome);return itemForm("income",it)+itemList("income")}
+
+function renderBackup(){
+  const rows=ui.importRows;
+  let preview="";
+  if(rows){
+    const good=rows.filter(r=>!r.err);
+    preview=`<div class="card"><h3 style="font-size:17px">Check before adding</h3>
+    <div class="tablewrap"><table><thead><tr><th>Type</th><th>Name</th><th>Amount</th><th>How often</th><th>Date</th></tr></thead><tbody>
+    ${rows.map(r=>r.err?`<tr><td colspan="5" class="err">Line ${r.line}: ${esc(r.err)}</td></tr>`:`<tr><td>${r.type}</td><td>${esc(r.name)}</td><td class="num">${money(r.amount)}</td><td>${FREQS[r.freq]}</td><td>${fmtShort(parseISO(r.date))}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="btns"><button class="b primary" data-act="doimport" ${good.length?"":"disabled"}>Add ${good.length} item${good.length===1?"":"s"}</button><button class="b" data-act="cancelimport">Cancel</button></div></div>`;
+  }
+  return `<div class="card"><h3 style="font-size:17px">Back up to Google Drive</h3>
+    <p class="note" style="margin:0">Makes one backup file with all your bills, income and paid marks. On Android, pick <b>Drive</b> from the share menu to save it there. On a new phone, use Restore and pick that file from Drive.</p>
+    <div class="btns"><button class="b primary" data-act="backup">Back up now</button><label class="b" for="restoreFile" style="display:inline-flex;align-items:center;cursor:pointer">Restore from backup</label><input type="file" id="restoreFile" accept=".json,application/json,text/plain,*/*" hidden></div>
+    <p class="note" style="margin:0">${state.lastBackup?`Last backup ${new Date(state.lastBackup).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}.`:"No backup made yet."} Restoring replaces what's in the app now.</p>
+  </div>
+  <div class="card"><h3 style="font-size:17px">Import bills and income</h3>
+    <p class="note" style="margin:0">Paste a list or pick a CSV file (a spreadsheet saved as CSV works). One line per item. Columns: <code>type, name, amount, how often, date</code>. Type is <code>bill</code> or <code>income</code>. Date can be <code>11/1/2026</code> or just a day of the month like <code>15</code>.</p>
+    <label class="f" for="csvText">List<textarea id="csvText" placeholder="type,name,amount,how often,date&#10;income,Paycheck,1850,every 2 weeks,10/31/2026&#10;bill,Rent,1200,monthly,1&#10;bill,Car insurance,142.50,monthly,18">${esc(ui.csvText||"")}</textarea></label>
+    <div class="btns"><button class="b primary" data-act="parse">Preview import</button><label class="b" for="csvFile" style="display:inline-flex;align-items:center;cursor:pointer">Choose CSV file</label><input type="file" id="csvFile" accept=".csv,text/csv,text/plain" hidden><button class="b" data-act="export">Save as CSV</button></div>
+  </div>${preview}
+  ${state.bills.length||state.incomes.length?`<div class="card"><h3 style="font-size:17px">Start over</h3><p class="note" style="margin:0">Removes every bill, income and paid mark from this app. Make a backup first if you might want them back.</p><div class="btns">${ui.confirmDel==="ALL"?`<button class="b danger" data-act="wipe">Yes, erase everything</button><button class="b" data-act="nodel">Keep my data</button>`:`<button class="b danger" data-act="askdel" data-id="ALL">Erase all data</button>`}</div></div>`:""}`;
+}
+
+/* ---------- CSV ---------- */
+function parseCSV(text){
+  const rows=[];let row=[],f="",q=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){if(c==='"'){if(text[i+1]==='"'){f+='"';i++}else q=false}else f+=c}
+    else if(c==='"')q=true; else if(c===","||c==="\t"){row.push(f);f=""} else if(c==="\n"||c==="\r"){if(c==="\r"&&text[i+1]==="\n")i++;row.push(f);rows.push(row);row=[];f=""} else f+=c}
+  row.push(f);rows.push(row);
+  return rows.map(r=>r.map(x=>x.trim())).filter(r=>r.some(x=>x));
+}
+function normFreq(s,fallback){
+  s=(s||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+  if(!s)return fallback;
+  if(/^(once|one ?time|single)/.test(s))return "once";
+  if(/(bi ?weekly|every (2|two|other) weeks?|fortnight)/.test(s))return "biweekly";
+  if(/(semi ?monthly|twice a month|2x month|1st and 15th)/.test(s))return "semimonthly";
+  if(/week/.test(s))return "weekly";
+  if(/(quarter|every (3|three) months)/.test(s))return "quarterly";
+  if(/(year|annual)/.test(s))return "yearly";
+  if(/month/.test(s))return "monthly";
+  return null;
+}
+function normDate(s){
+  s=(s||"").trim();const t=today();
+  let m;
+  if((m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)))return iso(new Date(+m[1],m[2]-1,+m[3]));
+  if((m=s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/))){let y=+m[3];if(y<100)y+=2000;const d=new Date(y,m[1]-1,+m[2]);return isNaN(d)?null:iso(d)}
+  if((m=s.match(/^(\d{1,2})(st|nd|rd|th)?$/))){const day=+m[1];if(day<1||day>31)return null;let d=monthDate(t.getFullYear(),t.getMonth(),day);if(d<t)d=monthDate(t.getFullYear(),t.getMonth()+1,day);return iso(d)}
+  const d=new Date(s);if(!isNaN(d)&&/[a-z]/i.test(s))return iso(new Date(d.getFullYear(),d.getMonth(),d.getDate()));
+  return null;
+}
+function rowsFromCSV(text){
+  let rows=parseCSV(text);if(!rows.length)return [];
+  let start=0;const h=rows[0].map(x=>x.toLowerCase());
+  let col={type:0,name:1,amount:2,freq:3,date:4};
+  if(h.some(x=>/name|amount|type/.test(x))){start=1;
+    const find=re=>h.findIndex(x=>re.test(x));
+    col={type:find(/type|kind/),name:find(/name|bill|payee|desc/),amount:find(/amount|amt|\$|cost|pay$/),freq:find(/often|freq|repeat|recur|schedule/),date:find(/date|due|day|payday/)};
+    if(col.name<0)col.name=col.type===0?1:0;
+  }
+  const out=[];
+  for(let i=start;i<rows.length;i++){const r=rows[i],get=k=>col[k]>=0?(r[col[k]]||""):"";
+    const typeRaw=get("type").toLowerCase();
+    const type=/inc|pay|salary|wage|deposit/.test(typeRaw)?"income":"bill";
+    const name=get("name"),amount=parseFloat(get("amount").replace(/[$,\s]/g,""));
+    const freq=normFreq(get("freq"),type==="income"?"biweekly":"monthly");
+    const date=normDate(get("date"));
+    let err=null;
+    if(!name)err="missing a name";else if(!isFinite(amount))err=`"${get("amount")}" isn't an amount`;else if(!freq)err=`"${get("freq")}" isn't a schedule I know (try monthly, weekly, every 2 weeks)`;else if(!date)err=`"${get("date")}" isn't a date (try 11/1/2026 or 15)`;
+    out.push({line:i+1,type,name,amount:Math.abs(amount),freq,date,err});
+  }
+  return out;
+}
+function toCSV(){
+  const q=s=>/[",\n]/.test(s)?`"${String(s).replace(/"/g,'""')}"`:String(s);
+  const lines=["type,name,amount,how often,date,second day"];
+  for(const n of state.incomes)lines.push(["income",n.name,n.amount.toFixed(2),n.freq,n.date,n.day2||""].map(q).join(","));
+  for(const b of state.bills)lines.push(["bill",b.name,b.amount.toFixed(2),b.freq,b.date,b.day2||""].map(q).join(","));
+  return lines.join("\n")+"\n";
+}
+
+/* ---------- files out ---------- */
+async function giveFile(filename,text,mime){
+  // Inside Claude: the downloads capability. Installed app: Android share sheet (pick Drive), else a normal download.
+  if(window.claude&&window.claude.use){
+    try{const dl=await window.claude.use("downloads");if(dl){await dl.save({filename,data:new Blob([text],{type:mime})});return "saved"}}catch(e){if(e&&e.code==="declined")return "declined"}
+  }
+  try{
+    const file=new File([text],filename,{type:mime});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:filename});return "shared"}
+  }catch(e){if(e&&e.name==="AbortError")return "declined"}
+  try{const url=URL.createObjectURL(new Blob([text],{type:mime}));const a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);return "saved"}catch(e){return "failed"}
+}
+function flash(text,bad){ui.flash={text,bad};render();clearTimeout(flash.t);flash.t=setTimeout(()=>{ui.flash=null;render()},5000)}
+
+/* ---------- events ---------- */
+document.getElementById("tabs").addEventListener("click",e=>{const b=e.target.closest("button[data-tab]");if(!b)return;ui.tab=b.dataset.tab;ui.confirmDel=null;ui.flash=null;render();window.scrollTo(0,0)});
+
+document.addEventListener("click",async e=>{
+  const el=e.target.closest("[data-act]");if(!el||el.tagName==="INPUT")return;
+  const a=el.dataset.act;
+  if(a==="go"){ui.tab=el.dataset.tab;render()}
+  else if(a==="off"){const d=+el.dataset.d;ui.offset=d===0?0:ui.offset+d;render()}
+  else if(a==="sample"){loadSample()}
+  else if(a==="edit"){if(el.dataset.kind==="income")ui.editIncome=el.dataset.id;else ui.editBill=el.dataset.id;render();window.scrollTo(0,0)}
+  else if(a==="cancel"){ui.editBill=ui.editIncome=null;render()}
+  else if(a==="askdel"){ui.confirmDel=el.dataset.id;render()}
+  else if(a==="nodel"){ui.confirmDel=null;render()}
+  else if(a==="del"){const k=el.dataset.kind==="income"?"incomes":"bills";state[k]=state[k].filter(x=>x.id!==el.dataset.id);if(state.mainIncomeId===el.dataset.id)state.mainIncomeId=null;ui.confirmDel=null;commit()}
+  else if(a==="wipe"){state={bills:[],incomes:[],paid:{},mainIncomeId:null,updatedAt:0};ui.confirmDel=null;commit();flash("All data erased.")}
+  else if(a==="parse"){ui.csvText=document.getElementById("csvText").value;const rows=rowsFromCSV(ui.csvText);if(!rows.length)flash("Paste a list or choose a CSV file first.",true);else{ui.importRows=rows;render()}}
+  else if(a==="cancelimport"){ui.importRows=null;render()}
+  else if(a==="doimport"){const good=ui.importRows.filter(r=>!r.err);for(const r of good){const it={id:uid(),name:r.name,amount:r.amount,freq:r.freq,date:r.date,day2:null};(r.type==="income"?state.incomes:state.bills).push(it)}ui.importRows=null;ui.csvText="";commit();flash(`Added ${good.length} item${good.length===1?"":"s"}.`)}
+  else if(a==="export"){const r=await giveFile("payday-planner.csv",toCSV(),"text/csv");if(r==="failed")flash("Couldn't save the file on this device.",true)}
+  else if(a==="backup"){
+    const stamp=iso(today());
+    const r=await giveFile(`payday-planner-backup-${stamp}.json`,JSON.stringify({app:"payday-planner",version:1,savedAt:new Date().toISOString(),data:state},null,1),"application/json");
+    if(r==="shared"||r==="saved"){state.lastBackup=Date.now();commit();flash(r==="shared"?"Backup file sent. If you picked Drive, it's in your Drive now.":"Backup file saved. Upload it to Google Drive to keep it safe.")}
+    else if(r==="failed")flash("Couldn't make the backup file on this device.",true);
+  }
+});
+document.addEventListener("change",async e=>{
+  const t=e.target;
+  if(t.dataset&&t.dataset.act==="paid"){if(t.checked)state.paid[t.dataset.key]=true;else delete state.paid[t.dataset.key];commit();return}
+  if(t.name==="freq"){const f=t.closest("form").querySelector("[data-day2]");if(f)f.hidden=t.value!=="semimonthly";return}
+  if(t.id==="csvFile"&&t.files[0]){const text=await t.files[0].text();ui.csvText=text;ui.importRows=rowsFromCSV(text);render();return}
+  if(t.id==="restoreFile"&&t.files[0]){
+    try{const j=JSON.parse(await t.files[0].text());const s=normalize(j.data||j);if(!s)throw 0;state=s;ui.offset=0;commit();flash(`Restored ${s.bills.length} bills and ${s.incomes.length} income${s.incomes.length===1?"":"s"}.`)}
+    catch(err){flash("That file isn't a Payday Planner backup. Pick the file that starts with payday-planner-backup.",true)}
+  }
+});
+document.addEventListener("submit",e=>{
+  e.preventDefault();const f=e.target,kind=f.dataset.kind,isInc=kind==="income";
+  const fd=new FormData(f);const amount=parseFloat(String(fd.get("amount")).replace(/[$,\s]/g,""));
+  if(!isFinite(amount)){flash("Enter the amount as a number, like 1200 or 84.99.",true);return}
+  const it={name:String(fd.get("name")).trim(),amount:Math.abs(amount),freq:String(fd.get("freq")),date:String(fd.get("date")),day2:fd.get("freq")==="semimonthly"&&fd.get("day2")?Number(fd.get("day2")):null};
+  const arr=isInc?state.incomes:state.bills;const editId=isInc?ui.editIncome:ui.editBill;
+  let id;
+  if(editId){const x=arr.find(z=>z.id===editId);Object.assign(x,it);id=editId}else{id=uid();arr.push({id,...it})}
+  if(isInc&&fd.get("main"))state.mainIncomeId=id;
+  if(isInc&&!state.mainIncomeId)state.mainIncomeId=id;
+  ui.editBill=ui.editIncome=null;
+  commit();flash(editId?"Saved.":`Added ${it.name}.`);
+});
+
+function loadSample(){
+  const t=today(),fri=addDays(t,(5-t.getDay()+7)%7-7);
+  const md=d=>iso(monthDate(t.getFullYear(),t.getMonth(),d));
+  const p={id:uid(),name:"Paycheck (example)",amount:1850,freq:"biweekly",date:iso(fri),day2:null};
+  state={incomes:[p],mainIncomeId:p.id,paid:{},updatedAt:0,bills:[
+    {name:"Rent (example)",amount:1200,freq:"monthly",date:md(1)},
+    {name:"Car payment (example)",amount:389,freq:"monthly",date:md(12)},
+    {name:"Phone (example)",amount:85,freq:"monthly",date:md(20)},
+    {name:"Electric (example)",amount:140,freq:"monthly",date:md(25)},
+    {name:"Car insurance (example)",amount:142.5,freq:"monthly",date:md(18)},
+    {name:"Groceries (example)",amount:150,freq:"weekly",date:iso(addDays(fri,1))},
+    {name:"Streaming (example)",amount:15.99,freq:"monthly",date:md(8)}
+  ].map(b=>({id:uid(),day2:null,...b}))};
+  commit();flash("Loaded example data. Erase it from the Backup tab when you're ready to add your own.");
+}
+
+initStore();
+})();
+</script>
+
+<script>if("serviceWorker" in navigator)addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));</script>
+</body></html>
