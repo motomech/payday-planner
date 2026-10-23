@@ -193,6 +193,7 @@ function commit(){
       saveChain=saveChain.then(()=>dbRef.set(body)).then(()=>setSave("ok","Saved to your account"),()=>setSave("bad",ok?"Saved on this phone only":"Not saved"));
     },500);
   } else setSave(ok?"ok":"bad",ok?"Saved on this phone":"Not saved: storage is blocked");
+  driveSchedule();
 }
 async function initStore(){
   const local=localLoad(); if(local)state=local;
@@ -243,6 +244,7 @@ const view=()=>document.getElementById("view");
 function render(){
   document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===ui.tab)));
   const fn={periods:renderPeriods,bills:renderBills,income:renderIncome,backup:renderBackup}[ui.tab];
+  renderDriveBanner();
   view().innerHTML=`<div class="wrap" style="gap:16px">${ui.flash?`<div class="msg ${ui.flash.bad?"bad":""}">${esc(ui.flash.text)}</div>`:""}${fn()}</div>`;
 }
 
@@ -324,7 +326,7 @@ function renderBackup(){
     </tbody></table></div>
     <div class="btns"><button class="b primary" data-act="doimport" ${good.length?"":"disabled"}>Add ${good.length} item${good.length===1?"":"s"}</button><button class="b" data-act="cancelimport">Cancel</button></div></div>`;
   }
-  return `<div class="card"><h3 style="font-size:17px">Back up to Google Drive</h3>
+  return driveCardHTML()+`<div class="card"><h3 style="font-size:17px">${drive.available?"Back up to a file":"Back up to Google Drive"}</h3>
     <p class="note" style="margin:0">Makes one backup file with all your bills, income and paid marks. On Android, pick <b>Drive</b> from the share menu to save it there. On a new phone, use Restore and pick that file from Drive.</p>
     <div class="btns"><button class="b primary" data-act="backup">Back up now</button><label class="b" for="restoreFile" style="display:inline-flex;align-items:center;cursor:pointer">Restore from backup</label><input type="file" id="restoreFile" accept=".json,application/json,text/plain,*/*" hidden></div>
     <p class="note" style="margin:0">${state.lastBackup?`Last backup ${new Date(state.lastBackup).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}.`:"No backup made yet."} Restoring replaces what's in the app now.</p>
@@ -397,6 +399,125 @@ function toCSV(){
   return lines.join("\n")+"\n";
 }
 
+/* ---------- Google Drive auto backup (installed app only; the Claude viewer blocks Google's sign-in) ---------- */
+const DRIVE_KEY="payday-planner-drive",FOLDER_NAME="Payday Planner Backups",FILE_NAME="payday-planner-backup.json";
+const drive={available:!(window.claude&&window.claude.use),cfg:{},token:null,exp:0,busy:false,timer:null,status:""};
+try{drive.cfg=JSON.parse(localStorage.getItem(DRIVE_KEY))||{}}catch(e){}
+function driveSaveCfg(){try{localStorage.setItem(DRIVE_KEY,JSON.stringify(drive.cfg))}catch(e){}}
+let gisLoading=null;
+function loadGIS(){
+  if(window.google&&google.accounts&&google.accounts.oauth2)return Promise.resolve();
+  return gisLoading||(gisLoading=new Promise((res,rej)=>{const sc=document.createElement("script");sc.src="https://accounts.google.com/gsi/client";sc.onload=res;sc.onerror=()=>{gisLoading=null;rej(new Error("Couldn't reach Google. Check your connection."))};document.head.appendChild(sc)}));
+}
+// Must run from a tap: Google shows its account popup.
+async function driveSignIn(first){
+  await loadGIS();
+  return new Promise((res,rej)=>{
+    const tc=google.accounts.oauth2.initTokenClient({client_id:drive.cfg.clientId,scope:"https://www.googleapis.com/auth/drive.file",
+      callback:r=>{if(r.error)return rej(new Error(r.error_description||r.error));drive.token=r.access_token;drive.exp=Date.now()+(Number(r.expires_in)||3600)*1000-60000;res()},
+      error_callback:e=>rej(new Error(e&&e.type==="popup_closed"?"Google sign-in was closed.":"Google sign-in didn't finish."))});
+    tc.requestAccessToken({prompt:first?"consent":""});
+  });
+}
+const tokenOk=()=>drive.token&&Date.now()<drive.exp;
+async function gapi(url,opts={}){
+  const r=await fetch(url,{...opts,headers:{Authorization:"Bearer "+drive.token,...(opts.headers||{})}});
+  if(r.status===401){drive.token=null;throw new Error("Google sign-in expired.")}
+  if(!r.ok)throw new Error("Google Drive said: "+r.status);
+  return r;
+}
+async function driveFind(q){const r=await gapi("https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,modifiedTime)&orderBy=modifiedTime desc&q="+encodeURIComponent(q+" and trashed=false"));return (await r.json()).files[0]||null}
+async function driveFolder(){
+  if(drive.cfg.folderId)return drive.cfg.folderId;
+  let f=await driveFind(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'`);
+  if(!f){const r=await gapi("https://www.googleapis.com/drive/v3/files?fields=id",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:FOLDER_NAME,mimeType:"application/vnd.google-apps.folder"})});f=await r.json()}
+  drive.cfg.folderId=f.id;driveSaveCfg();return f.id;
+}
+async function driveFile(){
+  if(drive.cfg.fileId)return drive.cfg.fileId;
+  const folder=await driveFolder();
+  const f=await driveFind(`name='${FILE_NAME}' and '${folder}' in parents`);
+  if(f){drive.cfg.fileId=f.id;driveSaveCfg()}
+  return f?f.id:null;
+}
+const backupJSON=()=>JSON.stringify({app:"payday-planner",version:1,savedAt:new Date().toISOString(),data:state},null,1);
+async function driveUpload(){
+  const body=backupJSON();let id=await driveFile();
+  if(id){
+    try{await gapi(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`,{method:"PATCH",headers:{"Content-Type":"application/json"},body});}
+    catch(e){if(!/404/.test(e.message))throw e;drive.cfg.fileId=null;drive.cfg.folderId=null;id=null}
+  }
+  if(!id){
+    const folder=await driveFolder(),b="pp"+uid();
+    const multi=`--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({name:FILE_NAME,parents:[folder]})}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
+    const r=await gapi("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:{"Content-Type":"multipart/related; boundary="+b},body:multi});
+    drive.cfg.fileId=(await r.json()).id;
+  }
+  drive.cfg.lastSync=Date.now();drive.cfg.pending=false;driveSaveCfg();
+}
+async function driveSync(fromTap){
+  if(!drive.available||!drive.cfg.connected||drive.busy)return;
+  drive.busy=true;drive.status="Backing up to Drive…";renderDriveCard();
+  try{
+    if(!tokenOk()){if(!fromTap){drive.cfg.pending=true;driveSaveCfg();drive.status="";return}await driveSignIn(false)}
+    await driveUpload();drive.status="";
+  }catch(e){drive.cfg.pending=true;driveSaveCfg();drive.status=e.message}
+  finally{drive.busy=false;renderDriveCard()}
+}
+function driveSchedule(){if(!drive.available||!drive.cfg.connected)return;drive.cfg.pending=true;driveSaveCfg();clearTimeout(drive.timer);drive.timer=setTimeout(()=>driveSync(false),4000)}
+async function driveConnect(){
+  const id=(document.getElementById("driveClientId")||{}).value;
+  if(id!==undefined){drive.cfg.clientId=id.trim();driveSaveCfg()}
+  if(!/\.apps\.googleusercontent\.com$/.test(drive.cfg.clientId||"")){drive.status="Paste the Client ID from Google first. It ends in .apps.googleusercontent.com.";renderDriveCard();return}
+  drive.busy=true;drive.status="Connecting…";renderDriveCard();
+  try{
+    await driveSignIn(true);
+    await driveFolder();
+    const existing=await driveFile();
+    drive.cfg.connected=true;driveSaveCfg();
+    if(existing&&!(state.bills.length||state.incomes.length)){drive.busy=false;drive.status="";await driveRestore(true);return}
+    await driveUpload();drive.status="";
+    flash(`Connected. Backups now save to the "${FOLDER_NAME}" folder in your Drive.`);
+  }catch(e){drive.status=e.message}
+  finally{drive.busy=false;renderDriveCard()}
+}
+async function driveRestore(silentOk){
+  drive.busy=true;drive.status="Restoring from Drive…";renderDriveCard();
+  try{
+    if(!tokenOk())await driveSignIn(false);
+    const id=await driveFile();if(!id)throw new Error("There's no backup in your Drive folder yet.");
+    const r=await gapi(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`);
+    const j=await r.json();const s=normalize(j.data||j);if(!s)throw new Error("The Drive backup couldn't be read.");
+    state=s;ui.offset=0;ui.confirmDel=null;localSave();render();
+    flash(`Restored ${s.bills.length} bills and ${s.incomes.length} income${s.incomes.length===1?"":"s"} from Drive.`);drive.status="";
+  }catch(e){drive.status=e.message}
+  finally{drive.busy=false;renderDriveCard()}
+}
+function driveDisconnect(){
+  try{if(drive.token&&window.google)google.accounts.oauth2.revoke(drive.token,()=>{})}catch(e){}
+  drive.token=null;drive.cfg={clientId:drive.cfg.clientId};driveSaveCfg();ui.confirmDel=null;render();
+}
+function driveCardHTML(){
+  if(!drive.available)return "";
+  const c=drive.cfg,when=c.lastSync?new Date(c.lastSync).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
+  const st=drive.status?`<p class="note" style="margin:0;color:${/…$/.test(drive.status)?"var(--muted)":"var(--bad)"}">${esc(drive.status)}</p>`:"";
+  if(!c.connected)return `<div class="card" id="driveCard"><h3 style="font-size:17px">Automatic Google Drive backup</h3>
+    <p class="note" style="margin:0">Connect once and the app saves a backup to the <b>${FOLDER_NAME}</b> folder in your Drive every time you change something. No menus, same folder every time.</p>
+    <label class="f" for="driveClientId">Google Client ID<input id="driveClientId" value="${esc(c.clientId||"")}" placeholder="1234-abc.apps.googleusercontent.com" autocomplete="off" spellcheck="false"></label>
+    <div class="btns"><button class="b primary" data-act="dconnect" ${drive.busy?"disabled":""}>Connect Google Drive</button></div>${st}</div>`;
+  return `<div class="card" id="driveCard"><h3 style="font-size:17px">Automatic Google Drive backup <span class="chip">On</span></h3>
+    <p class="note" style="margin:0">Saving to the <b>${FOLDER_NAME}</b> folder in your Drive. ${c.pending?"<b>Changes waiting to back up.</b>":when?`Last backup ${when}.`:""}</p>
+    <div class="btns"><button class="b primary" data-act="dsync" ${drive.busy?"disabled":""}>${c.pending?"Back up now":"Back up again"}</button><button class="b" data-act="drestore" ${drive.busy?"disabled":""}>Restore from Drive</button>${ui.confirmDel==="DRIVE"?`<button class="b small danger" data-act="ddisc">Disconnect</button>`:`<button class="b small" data-act="askdel" data-id="DRIVE">Disconnect</button>`}</div>${st}</div>`;
+}
+function renderDriveCard(){const el=document.getElementById("driveCard");if(el)el.outerHTML=driveCardHTML();renderDriveBanner()}
+function renderDriveBanner(){
+  let el=document.getElementById("driveBanner");
+  const show=drive.available&&drive.cfg.connected&&drive.cfg.pending&&!drive.busy&&!tokenOk()&&ui.tab!=="backup";
+  if(!show){if(el)el.remove();return}
+  if(!el){el=document.createElement("button");el.id="driveBanner";el.className="b small";el.dataset.act="dsync";el.style.cssText="position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(72px + env(safe-area-inset-bottom,0px));z-index:21;box-shadow:0 2px 10px rgba(0,0,0,.15)";document.body.appendChild(el)}
+  el.textContent="Back up to Drive";
+}
+
 /* ---------- files out ---------- */
 async function giveFile(filename,text,mime){
   // Inside Claude: the downloads capability. Installed app: Android share sheet (pick Drive), else a normal download.
@@ -420,6 +541,10 @@ document.addEventListener("click",async e=>{
   if(a==="go"){ui.tab=el.dataset.tab;render()}
   else if(a==="off"){const d=+el.dataset.d;ui.offset=d===0?0:ui.offset+d;render()}
   else if(a==="sample"){loadSample()}
+  else if(a==="dconnect"){driveConnect()}
+  else if(a==="dsync"){driveSync(true)}
+  else if(a==="drestore"){driveRestore()}
+  else if(a==="ddisc"){driveDisconnect()}
   else if(a==="edit"){if(el.dataset.kind==="income")ui.editIncome=el.dataset.id;else ui.editBill=el.dataset.id;render();window.scrollTo(0,0)}
   else if(a==="cancel"){ui.editBill=ui.editIncome=null;render()}
   else if(a==="askdel"){ui.confirmDel=el.dataset.id;render()}
@@ -433,7 +558,7 @@ document.addEventListener("click",async e=>{
   else if(a==="backup"){
     const stamp=iso(today());
     // Android only shares a short list of file types, so the backup goes out as plain text (.txt); Restore reads it either way.
-    const r=await giveFile(`payday-planner-backup-${stamp}.txt`,JSON.stringify({app:"payday-planner",version:1,savedAt:new Date().toISOString(),data:state},null,1),"text/plain");
+    const r=await giveFile(`payday-planner-backup-${stamp}.txt`,backupJSON(),"text/plain");
     if(r==="shared"||r==="saved"){state.lastBackup=Date.now();commit();flash(r==="shared"?"Backup file sent. If you picked Drive, it's in your Drive now.":"Backup saved to your phone's Downloads. To put it in Google Drive, open the Drive app, tap +, then Upload, and pick the payday-planner-backup file.")}
     else if(r==="failed")flash("Couldn't make the backup file on this device.",true);
   }
