@@ -683,6 +683,15 @@ function loadSample(){
 initStore();
 })();
 </script>
-
-<script>if("serviceWorker" in navigator)addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));</script>
+<script>
+if("serviceWorker" in navigator)addEventListener("load",()=>{
+  navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(reg=>{
+    // Check for a new version whenever the app comes back to the screen.
+    document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")reg.update().catch(()=>{})});
+  }).catch(()=>{});
+  // When a new version takes over, reload once so it shows right away.
+  let had=!!navigator.serviceWorker.controller,reloaded=false;
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{if(had&&!reloaded){reloaded=true;location.reload()}had=true});
+});
+</script>
 </body></html>
