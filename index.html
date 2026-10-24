@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#1E6B57"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}:root{padding-top:env(safe-area-inset-top,0px)}</style></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#B4521E"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}:root{padding-top:env(safe-area-inset-top,0px)}</style></head><body>
 <title>Payday Planner</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -6,21 +6,30 @@
 <style>
 /* Layout: one narrow column, phone first. Summary of this paycheck on top, then each pay period as a ledger stub. */
 :root{
-  --bg:#EEF3F1; --surface:#FFFFFF; --ink:#13201C; --muted:#5A6A65; --line:#D8E1DD;
-  --accent:#1E6B57; --accent-ink:#FFFFFF; --accent-soft:#DCEDE7;
-  --bad:#B3392F; --bad-soft:#F7E2DF; --warn:#9A6412; --warn-soft:#F6EBD6;
+  /* Base colors come from the chosen theme (Settings > Colors); the rest are mixed from them. Default: Harvest, warm browns and burnt orange. */
+  --bg:#F4ECE3; --surface:#FFFAF4; --ink:#2B1D14; --accent:#B4521E; --accent-ink:#FFFFFF; --bad:#A3261B; --warn:#9A6412;
+  --muted:color-mix(in srgb,var(--ink) 60%,var(--bg)); --line:color-mix(in srgb,var(--ink) 14%,var(--bg));
+  --accent-soft:color-mix(in srgb,var(--accent) 16%,var(--surface));
+  --bad-soft:color-mix(in srgb,var(--bad) 14%,var(--surface)); --warn-soft:color-mix(in srgb,var(--warn) 16%,var(--surface));
   --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
   --body:"Instrument Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0E1513; --surface:#16201D; --ink:#E4EDEA; --muted:#93A49F; --line:#28352F;
-  --accent:#5CC3A3; --accent-ink:#06261D; --accent-soft:#1B3A31;
-  --bad:#F08B80; --bad-soft:#3A1F1C; --warn:#E3B062; --warn-soft:#3A2D16; color-scheme:dark}}
+  --bg:#1B1410; --surface:#261C16; --ink:#F1E6DC; --accent:#E58A4E; --accent-ink:#2A1305; --bad:#F08A7A; --warn:#E0B060; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#0E1513; --surface:#16201D; --ink:#E4EDEA; --muted:#93A49F; --line:#28352F;
-  --accent:#5CC3A3; --accent-ink:#06261D; --accent-soft:#1B3A31;
-  --bad:#F08B80; --bad-soft:#3A1F1C; --warn:#E3B062; --warn-soft:#3A2D16; color-scheme:dark}
+  --bg:#1B1410; --surface:#261C16; --ink:#F1E6DC; --accent:#E58A4E; --accent-ink:#2A1305; --bad:#F08A7A; --warn:#E0B060; color-scheme:dark}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.swatch{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding:10px;border-radius:12px;border:2px solid var(--line);background:var(--surface);color:var(--ink);font:600 13px var(--body);cursor:pointer;text-align:left}
+.swatch[aria-pressed="true"]{border-color:var(--accent)}
+.swatch .chips{display:flex;gap:4px}
+.swatch .chips i{width:20px;height:20px;border-radius:50%;border:1px solid rgba(0,0,0,.15)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{background:var(--surface);color:var(--ink);border:0;padding:8px 14px;font:600 13px var(--body);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.pickers{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.pickers label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.pickers input[type=color]{width:44px;height:36px;padding:2px;border-radius:8px;flex:none}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 96px}
@@ -120,7 +129,7 @@ code{font-family:var(--mono);font-size:12.5px;background:var(--bg);padding:1px 5
   <button role="tab" data-tab="periods" aria-selected="true">Paychecks</button>
   <button role="tab" data-tab="bills" aria-selected="false">Bills</button>
   <button role="tab" data-tab="income" aria-selected="false">Income</button>
-  <button role="tab" data-tab="backup" aria-selected="false">Backup</button>
+  <button role="tab" data-tab="backup" aria-selected="false">Settings</button>
 </nav>
 
 <script>
@@ -169,6 +178,40 @@ function occurrences(it,s,e){
   return out;
 }
 
+/* ---------- colors ---------- */
+const THEMES={
+  harvest:{name:"Harvest",light:{bg:"#F4ECE3",surface:"#FFFAF4",ink:"#2B1D14",accent:"#B4521E",bad:"#A3261B",warn:"#9A6412"},dark:{bg:"#1B1410",surface:"#261C16",ink:"#F1E6DC",accent:"#E58A4E",bad:"#F08A7A",warn:"#E0B060"}},
+  coffee:{name:"Coffee",light:{bg:"#EEE6DD",surface:"#FAF6F1",ink:"#2A2019",accent:"#7A4E2D",bad:"#A3261B",warn:"#8C6414"},dark:{bg:"#16110D",surface:"#211913",ink:"#EDE3D9",accent:"#C99A6B",bad:"#F08A7A",warn:"#D9AE62"}},
+  canyon:{name:"Canyon",light:{bg:"#F5EAE5",surface:"#FFF8F5",ink:"#2A1512",accent:"#A0302A",bad:"#8E1F18",warn:"#A0620E"},dark:{bg:"#1B110F",surface:"#271917",ink:"#F2E3DF",accent:"#E2685C",bad:"#FF9C8E",warn:"#E3B062"}},
+  sunset:{name:"Sunset",light:{bg:"#FBF0E4",surface:"#FFFBF6",ink:"#2E1C0E",accent:"#D2691E",bad:"#B3261E",warn:"#8F5E0A"},dark:{bg:"#1D140C",surface:"#2A1D12",ink:"#F6E8D9",accent:"#F29A4A",bad:"#F4907F",warn:"#E8B867"}},
+  pine:{name:"Pine",light:{bg:"#EEF3F1",surface:"#FFFFFF",ink:"#13201C",accent:"#1E6B57",bad:"#B3392F",warn:"#9A6412"},dark:{bg:"#0E1513",surface:"#16201D",ink:"#E4EDEA",accent:"#5CC3A3",bad:"#F08B80",warn:"#E3B062"}},
+  slate:{name:"Slate",light:{bg:"#EDF0F4",surface:"#FFFFFF",ink:"#172029",accent:"#2F5E8C",bad:"#B3392F",warn:"#9A6412"},dark:{bg:"#0F141A",surface:"#18202A",ink:"#E3E9F0",accent:"#7FB0E0",bad:"#F08B80",warn:"#E3B062"}}
+};
+const DEFAULT_THEME={preset:"harvest",mode:"auto",custom:{bg:"#F4ECE3",surface:"#FFFAF4",ink:"#2B1D14",accent:"#B4521E"}};
+function lum(hex){const n=parseInt(hex.slice(1),16),c=[n>>16,n>>8&255,n&255].map(v=>{v/=255;return v<=.03928?v/12.92:Math.pow((v+.055)/1.055,2.4)});return .2126*c[0]+.7152*c[1]+.0722*c[2]}
+const darkMQ=window.matchMedia?matchMedia("(prefers-color-scheme: dark)"):null;
+function themeSettings(){const t=state.theme||{};return {preset:THEMES[t.preset]||t.preset==="custom"?t.preset:DEFAULT_THEME.preset,mode:["auto","light","dark"].includes(t.mode)?t.mode:"auto",custom:{...DEFAULT_THEME.custom,...(t.custom||{})}}}
+function applyTheme(){
+  const t=themeSettings();let pal,dark;
+  if(t.preset==="custom"){pal={...t.custom,bad:"",warn:""};dark=lum(pal.bg)<.2}
+  else{const host=document.documentElement.getAttribute("data-theme");dark=t.mode==="dark"||(t.mode==="auto"&&(host?host==="dark":!!(darkMQ&&darkMQ.matches)));pal=THEMES[t.preset][dark?"dark":"light"]}
+  const r=document.documentElement.style;
+  r.setProperty("--bg",pal.bg);r.setProperty("--surface",pal.surface);r.setProperty("--ink",pal.ink);r.setProperty("--accent",pal.accent);
+  const L=lum(pal.accent);r.setProperty("--accent-ink",(L+.05)/.057>1.05/(L+.05)?"#1A120C":"#FFFFFF");
+  r.setProperty("--bad",pal.bad||(dark?"#F08A7A":"#A3261B"));r.setProperty("--warn",pal.warn||(dark?"#E0B060":"#9A6412"));
+  r.setProperty("color-scheme",dark?"dark":"light");
+  const m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",pal.accent);
+}
+if(darkMQ&&darkMQ.addEventListener)darkMQ.addEventListener("change",applyTheme);
+function colorsCardHTML(){
+  const t=themeSettings();
+  const sw=Object.entries(THEMES).map(([k,v])=>{const p=v.light;return `<button type="button" class="swatch" data-act="theme" data-k="${k}" aria-pressed="${t.preset===k}"><span class="chips"><i style="background:${p.bg}"></i><i style="background:${p.accent}"></i><i style="background:${v.dark.accent}"></i><i style="background:${p.ink}"></i></span>${v.name}${k==="harvest"?" (default)":""}</button>`}).join("")
+    +`<button type="button" class="swatch" data-act="theme" data-k="custom" aria-pressed="${t.preset==="custom"}"><span class="chips"><i style="background:${t.custom.bg}"></i><i style="background:${t.custom.accent}"></i><i style="background:${t.custom.surface}"></i><i style="background:${t.custom.ink}"></i></span>My own colors</button>`;
+  const modes=t.preset==="custom"?"":`<div><div class="label" style="margin-bottom:6px">Light or dark</div><div class="seg" role="group" aria-label="Light or dark">${[["auto","Match phone"],["light","Light"],["dark","Dark"]].map(([k,l])=>`<button type="button" data-act="tmode" data-k="${k}" aria-pressed="${t.mode===k}">${l}</button>`).join("")}</div></div>`;
+  const pick=t.preset!=="custom"?"":`<div class="pickers">${[["bg","Background"],["surface","Cards"],["ink","Text"],["accent","Highlight"]].map(([k,l])=>`<label for="tc-${k}"><input type="color" id="tc-${k}" data-tc="${k}" value="${t.custom[k]}">${l}</label>`).join("")}</div><p class="note" style="margin:0">Pick a dark background for a dark look. Buttons, lines and labels are mixed from these four colors.</p>`;
+  return `<div class="card"><h3 style="font-size:17px">Colors</h3><div class="swatches">${sw}</div>${modes}${pick}</div>`;
+}
+
 /* ---------- state ---------- */
 const LS_KEY="payday-planner-v1";
 let state={bills:[],incomes:[],paid:{},amounts:{},mainIncomeId:null,updatedAt:0};
@@ -178,7 +221,7 @@ const uid=()=>Math.random().toString(36).slice(2,10);
 function normalize(s){
   if(!s||typeof s!=="object")return null;
   const clean=(arr)=>Array.isArray(arr)?arr.filter(x=>x&&x.name!=null&&x.date).map(x=>({id:String(x.id||uid()),name:String(x.name),amount:Number(x.amount)||0,freq:FREQS[x.freq]?x.freq:"monthly",date:String(x.date),day2:x.day2?Number(x.day2):null})):[];
-  return {bills:clean(s.bills),incomes:clean(s.incomes),paid:(s.paid&&typeof s.paid==="object")?s.paid:{},amounts:(s.amounts&&typeof s.amounts==="object")?s.amounts:{},mainIncomeId:s.mainIncomeId||null,updatedAt:Number(s.updatedAt)||0,lastBackup:Number(s.lastBackup)||null};
+  return {bills:clean(s.bills),incomes:clean(s.incomes),paid:(s.paid&&typeof s.paid==="object")?s.paid:{},amounts:(s.amounts&&typeof s.amounts==="object")?s.amounts:{},mainIncomeId:s.mainIncomeId||null,updatedAt:Number(s.updatedAt)||0,lastBackup:Number(s.lastBackup)||null,theme:(s.theme&&typeof s.theme==="object")?s.theme:null};
 }
 
 /* storage: account db when running inside Claude, plus device copy always */
@@ -257,6 +300,7 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"
 const view=()=>document.getElementById("view");
 
 function render(){
+  applyTheme();
   document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===ui.tab)));
   const fn={periods:renderPeriods,bills:renderBills,income:renderIncome,backup:renderBackup}[ui.tab];
   renderDriveBanner();
@@ -268,7 +312,7 @@ function renderPeriods(){
     <h2 style="font-size:20px">Plan each paycheck</h2>
     <p style="margin:0;max-width:34ch">Add your paycheck and your bills. Each pay period then lists every bill due before the next payday, and what's left over.</p>
     <div class="btns" style="justify-content:center"><button class="b primary" data-act="go" data-tab="income">Add my paycheck</button><button class="b" data-act="sample">Try with example data</button></div>
-    <p class="note" style="margin:0">Already have a backup? Restore it from the Backup tab.</p></div>`;
+    <p class="note" style="margin:0">Already have a backup? Restore it from the Settings tab.</p></div>`;
   if(!state.incomes.length)return `<div class="card empty"><h2 style="font-size:20px">Add your paycheck</h2><p style="margin:0">Pay periods run from one payday to the next, so I need to know when you get paid.</p><button class="b primary" data-act="go" data-tab="income">Add income</button></div>`;
   const ps=periods(ui.offset,4); const t=today();
   const cur=periods(0,1)[0];
@@ -315,7 +359,7 @@ function itemForm(kind,item){
 
 function itemList(kind){
   const isInc=kind==="income";const arr=isInc?state.incomes:state.bills;
-  if(!arr.length)return `<div class="card empty">${isInc?"No income yet. Add your paycheck above.":"No bills yet. Add one above, or import a list from the Backup tab."}</div>`;
+  if(!arr.length)return `<div class="card empty">${isInc?"No income yet. Add your paycheck above.":"No bills yet. Add one above, or import a list from the Settings tab."}</div>`;
   const mi=mainIncome();
   const sorted=[...arr].sort((a,b)=>isInc?0:(nextDue(a)-nextDue(b)));
   const total=isInc?"":`<div class="note">${arr.length} bills · about ${money(monthlyTotal(arr))} a month</div>`;
@@ -341,7 +385,7 @@ function renderBackup(){
     </tbody></table></div>
     <div class="btns"><button class="b primary" data-act="doimport" ${good.length?"":"disabled"}>Add ${good.length} item${good.length===1?"":"s"}</button><button class="b" data-act="cancelimport">Cancel</button></div></div>`;
   }
-  return driveCardHTML()+`<div class="card"><h3 style="font-size:17px">${drive.available?"Back up to a file":"Back up to Google Drive"}</h3>
+  return colorsCardHTML()+driveCardHTML()+`<div class="card"><h3 style="font-size:17px">${drive.available?"Back up to a file":"Back up to Google Drive"}</h3>
     <p class="note" style="margin:0">Makes one backup file with all your bills, income and paid marks. On Android, pick <b>Drive</b> from the share menu to save it there. On a new phone, use Restore and pick that file from Drive.</p>
     <div class="btns"><button class="b primary" data-act="backup">Back up now</button><label class="b" for="restoreFile" style="display:inline-flex;align-items:center;cursor:pointer">Restore from backup</label><input type="file" id="restoreFile" accept=".json,application/json,text/plain,*/*" hidden></div>
     <p class="note" style="margin:0">${state.lastBackup?`Last backup ${new Date(state.lastBackup).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}.`:"No backup made yet."} Restoring replaces what's in the app now.</p>
@@ -558,6 +602,8 @@ document.addEventListener("click",async e=>{
   if(a==="go"){ui.tab=el.dataset.tab;render()}
   else if(a==="off"){const d=+el.dataset.d;ui.offset=d===0?0:ui.offset+d;render()}
   else if(a==="sample"){loadSample()}
+  else if(a==="theme"){state.theme={...themeSettings(),preset:el.dataset.k};commit()}
+  else if(a==="tmode"){state.theme={...themeSettings(),mode:el.dataset.k};commit()}
   else if(a==="amt"){ui.editAmt=ui.editAmt===el.dataset.key?null:el.dataset.key;render();focusAmt()}
   else if(a==="amtclose"){ui.editAmt=null;render()}
   else if(a==="amtreset"){delete state.amounts[el.dataset.key];ui.editAmt=null;commit()}
@@ -585,6 +631,7 @@ document.addEventListener("click",async e=>{
 });
 document.addEventListener("change",async e=>{
   const t=e.target;
+  if(t.dataset&&t.dataset.tc){const th=themeSettings();th.custom[t.dataset.tc]=t.value;state.theme=th;commit();return}
   if(t.dataset&&t.dataset.act==="paid"){if(t.checked){state.paid[t.dataset.key]=true;ui.editAmt=t.dataset.key}else{delete state.paid[t.dataset.key];if(ui.editAmt===t.dataset.key)ui.editAmt=null}commit();focusAmt();return}
   if(t.name==="freq"){const f=t.closest("form").querySelector("[data-day2]");if(f)f.hidden=t.value!=="semimonthly";return}
   if(t.id==="csvFile"&&t.files[0]){const text=await t.files[0].text();ui.csvText=text;ui.importRows=rowsFromCSV(text);render();return}
@@ -630,7 +677,7 @@ function loadSample(){
     {name:"Groceries (example)",amount:150,freq:"weekly",date:iso(addDays(fri,1))},
     {name:"Streaming (example)",amount:15.99,freq:"monthly",date:md(8)}
   ].map(b=>({id:uid(),day2:null,...b}))};
-  commit();flash("Loaded example data. Erase it from the Backup tab when you're ready to add your own.");
+  commit();flash("Loaded example data. Erase it from the Settings tab when you're ready to add your own.");
 }
 
 initStore();
