@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#B4521E"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}:root{padding-top:env(safe-area-inset-top,0px)}</style></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#F4ECE3"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}:root{padding-top:env(safe-area-inset-top,0px)}</style></head><body>
 <title>Payday Planner</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -190,7 +190,7 @@ const THEMES={
 const DEFAULT_THEME={preset:"harvest",mode:"auto",custom:{bg:"#F4ECE3",surface:"#FFFAF4",ink:"#2B1D14",accent:"#B4521E"}};
 function lum(hex){const n=parseInt(hex.slice(1),16),c=[n>>16,n>>8&255,n&255].map(v=>{v/=255;return v<=.03928?v/12.92:Math.pow((v+.055)/1.055,2.4)});return .2126*c[0]+.7152*c[1]+.0722*c[2]}
 const darkMQ=window.matchMedia?matchMedia("(prefers-color-scheme: dark)"):null;
-function themeSettings(){const t=state.theme||{};return {preset:THEMES[t.preset]||t.preset==="custom"?t.preset:DEFAULT_THEME.preset,mode:["auto","light","dark"].includes(t.mode)?t.mode:"auto",custom:{...DEFAULT_THEME.custom,...(t.custom||{})}}}
+function themeSettings(){const t=state.theme||{};return {preset:THEMES[t.preset]||t.preset==="custom"?t.preset:DEFAULT_THEME.preset,mode:["auto","light","dark"].includes(t.mode)?t.mode:"auto",custom:{...DEFAULT_THEME.custom,...(t.custom||{})},lastPreset:THEMES[t.lastPreset]?t.lastPreset:null}}
 function applyTheme(){
   const t=themeSettings();let pal,dark;
   if(t.preset==="custom"){pal={...t.custom,bad:"",warn:""};dark=lum(pal.bg)<.2}
@@ -200,7 +200,7 @@ function applyTheme(){
   const L=lum(pal.accent);r.setProperty("--accent-ink",(L+.05)/.057>1.05/(L+.05)?"#1A120C":"#FFFFFF");
   r.setProperty("--bad",pal.bad||(dark?"#F08A7A":"#A3261B"));r.setProperty("--warn",pal.warn||(dark?"#E0B060":"#9A6412"));
   r.setProperty("color-scheme",dark?"dark":"light");
-  const m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",pal.accent);
+  const m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",pal.bg);
 }
 if(darkMQ&&darkMQ.addEventListener)darkMQ.addEventListener("change",applyTheme);
 function colorsCardHTML(){
@@ -602,7 +602,7 @@ document.addEventListener("click",async e=>{
   if(a==="go"){ui.tab=el.dataset.tab;render()}
   else if(a==="off"){const d=+el.dataset.d;ui.offset=d===0?0:ui.offset+d;render()}
   else if(a==="sample"){loadSample()}
-  else if(a==="theme"){state.theme={...themeSettings(),preset:el.dataset.k};commit()}
+  else if(a==="theme"){const k=el.dataset.k,th=themeSettings();state.theme={...th,preset:k,lastPreset:THEMES[k]?k:(THEMES[th.preset]?th.preset:th.lastPreset)};commit()}
   else if(a==="tmode"){state.theme={...themeSettings(),mode:el.dataset.k};commit()}
   else if(a==="amt"){ui.editAmt=ui.editAmt===el.dataset.key?null:el.dataset.key;render();focusAmt()}
   else if(a==="amtclose"){ui.editAmt=null;render()}
