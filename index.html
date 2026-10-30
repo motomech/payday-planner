@@ -220,8 +220,8 @@ const uid=()=>Math.random().toString(36).slice(2,10);
 
 function normalize(s){
   if(!s||typeof s!=="object")return null;
-  const clean=(arr)=>Array.isArray(arr)?arr.filter(x=>x&&x.name!=null&&x.date).map(x=>({id:String(x.id||uid()),name:String(x.name),amount:Number(x.amount)||0,freq:FREQS[x.freq]?x.freq:"monthly",date:String(x.date),day2:x.day2?Number(x.day2):null})):[];
-  return {bills:clean(s.bills),incomes:clean(s.incomes),paid:(s.paid&&typeof s.paid==="object")?s.paid:{},amounts:(s.amounts&&typeof s.amounts==="object")?s.amounts:{},mainIncomeId:s.mainIncomeId||null,updatedAt:Number(s.updatedAt)||0,lastBackup:Number(s.lastBackup)||null,theme:(s.theme&&typeof s.theme==="object")?s.theme:null};
+  const clean=(arr)=>Array.isArray(arr)?arr.filter(x=>x&&x.name!=null&&x.date).map(x=>({id:String(x.id||uid()),name:String(x.name),amount:Number(x.amount)||0,freq:FREQS[x.freq]?x.freq:"monthly",date:String(x.date),day2:x.day2?Number(x.day2):null,grace:Number(x.grace)>0?Math.round(Number(x.grace)):null})):[];
+  return {bills:clean(s.bills),incomes:clean(s.incomes),paid:(s.paid&&typeof s.paid==="object")?s.paid:{},amounts:(s.amounts&&typeof s.amounts==="object")?s.amounts:{},moved:(s.moved&&typeof s.moved==="object")?s.moved:{},mainIncomeId:s.mainIncomeId||null,updatedAt:Number(s.updatedAt)||0,lastBackup:Number(s.lastBackup)||null,theme:(s.theme&&typeof s.theme==="object")?s.theme:null};
 }
 
 /* storage: account db when running inside Claude, plus device copy always */
@@ -283,14 +283,21 @@ function periods(offset,count){
   const out=[];
   for(let i=cur+offset;i<cur+offset+count;i++){
     if(i<0||i+1>=pays.length)continue;
-    const s=pays[i],e=pays[i+1];
-    const bills=[];for(const b of state.bills)for(const d of occurrences(b,s,e)){const key=b.id+"|"+iso(d);bills.push({b,d,key,amt:amtFor(key,b.amount)})}
+    const s=pays[i],e=pays[i+1],prev=i>0?pays[i-1]:null;
+    // A bill with a grace period can be moved to the next check when that payday is still within its grace.
+    const graceOk=(b,d,nextPay)=>b.grace&&nextPay&&nextPay<=addDays(d,b.grace);
+    const isMoved=(b,d,nextPay)=>!!(state.moved&&state.moved[b.id+"|"+iso(d)])&&graceOk(b,d,nextPay);
+    const bills=[];
+    for(const b of state.bills){
+      for(const d of occurrences(b,s,e)){const key=b.id+"|"+iso(d);if(isMoved(b,d,e))continue;bills.push({b,d,key,amt:amtFor(key,b.amount),canMove:graceOk(b,d,e)})}
+      if(prev)for(const d of occurrences(b,prev,s)){if(!isMoved(b,d,s))continue;const key=b.id+"|"+iso(d);bills.push({b,d,key,amt:amtFor(key,b.amount),movedFrom:prev})}
+    }
     bills.sort((x,y)=>x.d-y.d||y.b.amount-x.b.amount);
     const inc=[];for(const n of state.incomes)for(const d of occurrences(n,s,e)){const key=n.id+"|"+iso(d);inc.push({n,d,key,amt:amtFor(key,n.amount)})}
     inc.sort((x,y)=>x.d-y.d);
     const incT=inc.reduce((a,x)=>a+x.amt,0),billT=bills.reduce((a,x)=>a+x.amt,0);
     const unpaid=bills.filter(x=>!state.paid[x.key]).reduce((a,x)=>a+x.amt,0);
-    out.push({s,e,bills,inc,incT,billT,unpaid,left:incT-billT,current:s<=t&&t<e});
+    out.push({rel:i-cur,s,e,bills,inc,incT,billT,unpaid,left:incT-billT,current:s<=t&&t<e});
   }
   return out;
 }
@@ -314,7 +321,8 @@ function renderPeriods(){
     <div class="btns" style="justify-content:center"><button class="b primary" data-act="go" data-tab="income">Add my paycheck</button><button class="b" data-act="sample">Try with example data</button></div>
     <p class="note" style="margin:0">Already have a backup? Restore it from the Settings tab.</p></div>`;
   if(!state.incomes.length)return `<div class="card empty"><h2 style="font-size:20px">Add your paycheck</h2><p style="margin:0">Pay periods run from one payday to the next, so I need to know when you get paid.</p><button class="b primary" data-act="go" data-tab="income">Add income</button></div>`;
-  const ps=periods(ui.offset,4); const t=today();
+  const all=periods(ui.offset-1,6),byRel={};for(const q of all)byRel[q.rel]=q;
+  const ps=all.filter(q=>q.rel>=ui.offset&&q.rel<ui.offset+4); const t=today();
   const cur=periods(0,1)[0];
   let hero="";
   if(cur){
@@ -328,7 +336,7 @@ function renderPeriods(){
     const lines=[
       ...p.inc.map(x=>`<li class="inc"><span class="ico" aria-hidden="true">+</span><div class="nm">${esc(x.n.name)}<div class="sub">${fmtDay(x.d)}</div></div>${amtCell(x.key,x.amt,x.n.amount,x.n.name)}${amtEditor(x.key,x.amt,x.n.amount,false,true)}</li>`),
       ...p.bills.map(x=>{const paid=!!state.paid[x.key];const late=!paid&&x.d<t;
-        return `<li class="${paid?"paid":""}"><input type="checkbox" id="pd-${esc(x.key)}" data-act="paid" data-key="${esc(x.key)}" ${paid?"checked":""} aria-label="Mark ${esc(x.b.name)} paid"><label class="nm" for="pd-${esc(x.key)}">${esc(x.b.name)} ${late?'<span class="chip bad">Past due</span>':""}<div class="sub">Due ${fmtDay(x.d)}</div></label>${amtCell(x.key,x.amt,x.b.amount,x.b.name)}${amtEditor(x.key,x.amt,x.b.amount,paid,false)}</li>`})
+        return `<li class="${paid?"paid":""}"><input type="checkbox" id="pd-${esc(x.key)}" data-act="paid" data-key="${esc(x.key)}" ${paid?"checked":""} aria-label="Mark ${esc(x.b.name)} paid"><label class="nm" for="pd-${esc(x.key)}">${esc(x.b.name)} ${late?'<span class="chip bad">Past due</span>':""}<div class="sub">Due ${fmtDay(x.d)}${x.b.grace?` · grace to ${fmtShort(addDays(x.d,x.b.grace))}`:""}</div></label>${amtCell(x.key,x.amt,x.b.amount,x.b.name)}${amtEditor(x.key,x.amt,x.b.amount,paid,false)}${graceRow(x,p,byRel)}</li>`})
     ].join("");
     return `<section class="period ${p.current?"current":""}">
       <div class="p-head"><h2>${fmtShort(p.s)} – ${fmtShort(addDays(p.e,-1))}</h2>${p.current?'<span class="chip">This paycheck</span>':p.e<=t?'<span class="chip warn">Past</span>':""}</div>
@@ -337,6 +345,18 @@ function renderPeriods(){
     </section>`}).join("");
   return hero+`<div class="pager"><button class="b small" data-act="off" data-d="-1">‹ Earlier</button>${ui.offset?'<button class="b small" data-act="off" data-d="0">Back to now</button>':""}<button class="b small" data-act="off" data-d="1">Later ›</button></div><p class="note" style="margin:0">Tap any amount to change it for just that date. Checking off a bill lets you enter what you actually paid.</p>`+stubs;
 }
+
+// Move-to-next-check control, with the left-over on both checks before and after.
+function graceRow(x,p,byRel){
+  if(paidOrNone(x))return "";
+  const fmt=(q,delta)=>`${fmtShort(q.s)} check ${money(q.left)} → <b class="${q.left+delta<0?"neg":""}">${money(q.left+delta)}</b>`;
+  if(x.movedFrom){const q=byRel[p.rel-1];
+    return `<div class="amt-edit"><span class="chip warn">Moved from ${fmtShort(x.movedFrom)} check</span><button class="b small" type="button" data-act="unmove" data-key="${esc(x.key)}">Pay on ${fmtShort(x.movedFrom)} check</button>${q?`<span>Left over: ${fmt(p,x.amt)} · ${fmt(q,-x.amt)}</span>`:""}</div>`}
+  if(x.canMove){const q=byRel[p.rel+1];
+    return `<div class="amt-edit"><button class="b small" type="button" data-act="move" data-key="${esc(x.key)}">Pay on ${fmtShort(p.e)} check</button>${q?`<span>Left over: ${fmt(p,x.amt)} · ${fmt(q,-x.amt)}</span>`:""}</div>`}
+  return "";
+}
+const paidOrNone=x=>!!state.paid[x.key]||!x.amt;
 
 function freqOptions(sel,isIncome){return Object.entries(FREQS).filter(([k])=>!(isIncome&&k==="once"&&false)).map(([k,v])=>`<option value="${k}" ${k===sel?"selected":""}>${v}</option>`).join("")}
 
@@ -350,6 +370,7 @@ function itemForm(kind,item){
       <label class="f" for="${p}-amount">Amount<input id="${p}-amount" name="amount" required inputmode="decimal" value="${it.amount===""?"":esc(it.amount)}" placeholder="0.00"></label>
       <label class="f" for="${p}-freq">How often<select id="${p}-freq" name="freq">${freqOptions(it.freq,isInc)}</select></label>
       <label class="f" for="${p}-date">${isInc?"A payday":"Next due date"}<input id="${p}-date" name="date" type="date" required value="${esc(it.date)}"></label>
+      ${isInc?"":`<label class="f" for="bill-grace">Grace period (days)<input id="bill-grace" name="grace" type="number" min="0" max="60" inputmode="numeric" value="${it.grace||""}" placeholder="Optional, e.g. 15"></label>`}
       <label class="f" for="${p}-day2" ${it.freq==="semimonthly"?"":"hidden"} data-day2>Second day of the month<input id="${p}-day2" name="day2" type="number" min="1" max="31" value="${it.day2||""}" placeholder="e.g. 15, or 31 for last day"></label>
     </div>
     ${isInc&&state.incomes.length>(item?1:0)?`<label class="check" for="inc-main"><input type="checkbox" id="inc-main" name="main" ${item&&mainIncome()&&mainIncome().id===item.id?"checked":""}>This paycheck sets my pay periods</label>`:""}
@@ -365,7 +386,7 @@ function itemList(kind){
   const total=isInc?"":`<div class="note">${arr.length} bills · about ${money(monthlyTotal(arr))} a month</div>`;
   return `<div class="card">${total}<ul class="items">${sorted.map(it=>{
     const nd=nextDue(it);const conf=ui.confirmDel===it.id;
-    return `<li><div><b>${esc(it.name)}</b> ${isInc&&mi&&mi.id===it.id&&state.incomes.length>1?'<span class="chip">Sets pay periods</span>':""}<div class="meta"><span class="num">${money(it.amount)}</span> · ${FREQS[it.freq]}${nd?` · next ${fmtShort(nd)}`:""}</div></div>
+    return `<li><div><b>${esc(it.name)}</b> ${isInc&&mi&&mi.id===it.id&&state.incomes.length>1?'<span class="chip">Sets pay periods</span>':""}<div class="meta"><span class="num">${money(it.amount)}</span> · ${FREQS[it.freq]}${nd?` · next ${fmtShort(nd)}`:""}${it.grace?` · ${it.grace}-day grace`:""}</div></div>
     <div class="acts">${conf?`<button class="b small danger" data-act="del" data-kind="${kind}" data-id="${it.id}">Delete</button><button class="b small" data-act="nodel">Keep</button>`:`<button class="b small" data-act="edit" data-kind="${kind}" data-id="${it.id}">Edit</button><button class="b small" data-act="askdel" data-id="${it.id}" aria-label="Delete ${esc(it.name)}">✕</button>`}</div></li>`}).join("")}</ul></div>`;
 }
 function nextDue(it){const t=today();const o=occurrences(it,t,addDays(t,800));return o[0]||null}
@@ -605,6 +626,8 @@ document.addEventListener("click",async e=>{
   else if(a==="theme"){const k=el.dataset.k,th=themeSettings();state.theme={...th,preset:k,lastPreset:THEMES[k]?k:(THEMES[th.preset]?th.preset:th.lastPreset)};commit()}
   else if(a==="tmode"){state.theme={...themeSettings(),mode:el.dataset.k};commit()}
   else if(a==="amt"){ui.editAmt=ui.editAmt===el.dataset.key?null:el.dataset.key;render();focusAmt()}
+  else if(a==="move"){state.moved=state.moved||{};state.moved[el.dataset.key]=true;commit()}
+  else if(a==="unmove"){if(state.moved)delete state.moved[el.dataset.key];commit()}
   else if(a==="amtclose"){ui.editAmt=null;render()}
   else if(a==="amtreset"){delete state.amounts[el.dataset.key];ui.editAmt=null;commit()}
   else if(a==="dconnect"){driveConnect()}
@@ -655,6 +678,7 @@ document.addEventListener("submit",e=>{
   const fd=new FormData(f);const amount=parseFloat(String(fd.get("amount")).replace(/[$,\s]/g,""));
   if(!isFinite(amount)){flash("Enter the amount as a number, like 1200 or 84.99.",true);return}
   const it={name:String(fd.get("name")).trim(),amount:Math.abs(amount),freq:String(fd.get("freq")),date:String(fd.get("date")),day2:fd.get("freq")==="semimonthly"&&fd.get("day2")?Number(fd.get("day2")):null};
+  if(!isInc)it.grace=Number(fd.get("grace"))>0?Math.round(Number(fd.get("grace"))):null;
   const arr=isInc?state.incomes:state.bills;const editId=isInc?ui.editIncome:ui.editBill;
   let id;
   if(editId){const x=arr.find(z=>z.id===editId);Object.assign(x,it);id=editId}else{id=uid();arr.push({id,...it})}
